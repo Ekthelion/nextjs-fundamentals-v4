@@ -8,7 +8,7 @@ import {
   deleteSession,
 } from '@/lib/auth'
 import { getUserByEmail } from '@/lib/dal'
-import { mockDelay } from '@/lib/utils'
+// import { mockDelay } from '@/lib/utils'
 import { redirect } from 'next/navigation'
 
 // Define Zod schema for signin validation
@@ -37,4 +37,150 @@ export type ActionResponse = {
   message: string
   errors?: Record<string, string[]>
   error?: string
+}
+
+export const signIn = async (formData: FormData): Promise<ActionResponse> => {
+  try {
+    const data = {
+      email: formData.get('email') as string,
+      password: formData.get('password') as string,
+    }
+
+    const validatedData = SignInSchema.safeParse(data)
+    if (!validatedData.success) {
+      return {
+        success: false,
+        message: 'Validation failed',
+        errors: validatedData.error.flatten().fieldErrors,
+      }
+    }
+
+    const user = await getUserByEmail(data.email)
+    if (!user) {
+      return {
+        success: false,
+        message: 'Authentication failed',
+        errors: {
+          email: ['Authentication failed'],
+        },
+      }
+    }
+
+    const isPasswordValid = await verifyPassword(data.password, user.password)
+    if (!isPasswordValid) {
+      return {
+        success: false,
+        message: 'Authentication failed',
+        errors: {
+          password: ['Authentication failed'],
+        },
+      }
+    }
+
+    const session = await createSession(user.id)
+    if (!session) {
+      return {
+        success: false,
+        message: 'Authentication failed',
+        errors: {
+          email: ['Authentication failed'],
+        },
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Authentication successful',
+    }
+  } catch (e) {
+    console.error(e)
+    return {
+      success: false,
+      message: 'Authentication failed',
+      error: 'Authentication failed',
+    }
+  }
+}
+
+export const signUp = async (formData: FormData): Promise<ActionResponse> => {
+  try {
+    const data = {
+      email: formData.get('email') as string,
+      password: formData.get('password') as string,
+      confirmPassword: formData.get('confirmPassword') as string,
+    }
+
+    const validatedData = SignUpSchema.safeParse(data)
+    if (!validatedData.success) {
+      return {
+        success: false,
+        message: 'Validation failed',
+        errors: validatedData.error.flatten().fieldErrors,
+      }
+    }
+
+    const user = await getUserByEmail(data.email)
+    if (user) {
+      return {
+        success: false,
+        message: 'Sign up failed',
+        errors: {
+          email: ['Sign up failed'],
+        },
+      }
+    }
+
+    const newUser = await createUser(data.email, data.password)
+    if (!newUser) {
+      return {
+        success: false,
+        message: 'Sign up failed',
+        errors: {
+          email: ['Sign up failed'],
+        },
+      }
+    }
+
+    const session = await createSession(newUser.id)
+    if (!session) {
+      return {
+        success: false,
+        message: 'Sign up failed',
+        errors: {
+          email: ['Sign up failed'],
+        },
+      }
+    }
+
+    return {
+      success: true,
+      message: 'Sign up successful',
+    }
+  } catch (e) {
+    console.error(e)
+    return {
+      success: false,
+      message: 'Sign up failed',
+      error: 'Sign up failed',
+    }
+  }
+}
+
+export const signOut = async () => {
+  try {
+    await deleteSession()
+    return {
+      success: true,
+      message: 'Sign out successful',
+    }
+  } catch (e) {
+    console.error(e)
+    return {
+      success: false,
+      message: 'Sign out failed',
+      error: 'Sign out failed',
+    }
+  } finally {
+    redirect('/signin')
+  }
 }

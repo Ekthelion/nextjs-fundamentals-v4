@@ -3,9 +3,11 @@
 import { db } from '@/db'
 import { issues } from '@/db/schema'
 import { eq } from 'drizzle-orm'
-import { getCurrentUser } from '@/lib/dal'
+import { getCurrentUser, getIssue } from '@/lib/dal'
 import { z } from 'zod'
-import { mockDelay } from '@/lib/utils'
+// import { mockDelay } from '@/lib/utils'
+import { notFound } from 'next/navigation'
+import { revalidateTag } from 'next/cache'
 
 // Define Zod schema for issue validation
 const IssueSchema = z.object({
@@ -33,4 +35,137 @@ export type ActionResponse = {
   message: string
   errors?: Record<string, string[]>
   error?: string
+}
+
+export const createIssue = async (data: IssueData): Promise<ActionResponse> => {
+  try {
+    // Security check - ensure user is authenticated
+    const user = await getCurrentUser()
+    if (!user) {
+      return {
+        success: false,
+        message: 'Unauthorized access',
+        error: 'Unauthorized',
+      }
+    }
+
+    // Validate with Zod
+    const validationResult = IssueSchema.safeParse(data)
+    if (!validationResult.success) {
+      return {
+        success: false,
+        message: 'Validation failed',
+        errors: validationResult.error.flatten().fieldErrors,
+      }
+    }
+
+    // Create issue with validated data
+    const validatedData = validationResult.data
+    await db.insert(issues).values({
+      title: validatedData.title,
+      description: validatedData.description || null,
+      status: validatedData.status,
+      priority: validatedData.priority,
+      userId: validatedData.userId,
+    })
+    revalidateTag('issues')
+
+    return { success: true, message: 'Issue created successfully' }
+  } catch (error) {
+    console.error('Error creating issue:', error)
+    return {
+      success: false,
+      message: 'An error occurred while creating the issue',
+      error: 'Failed to create issue',
+    }
+  }
+}
+
+export const updateIssue = async (
+  id: number,
+  data: Partial<IssueData>
+): Promise<ActionResponse> => {
+  try {
+    const user = await getCurrentUser()
+
+    if (!user) {
+      return {
+        success: false,
+        message: 'Unauthorized access',
+        error: 'Unauthorized',
+      }
+    }
+
+    const issue = await getIssue(id)
+    if (!issue) {
+      return notFound()
+    }
+    const UpdateIssueSchema = IssueSchema.partial()
+    const validationResult = UpdateIssueSchema.safeParse(data)
+    if (!validationResult.success) {
+      return {
+        success: false,
+        message: 'Validation failed',
+        errors: validationResult.error.flatten().fieldErrors,
+      }
+    }
+
+    // Type safe update object with validated data
+    const validatedData = validationResult.data
+    const updateData: Record<string, unknown> = {}
+
+    if (validatedData.title !== undefined)
+      updateData.title = validatedData.title
+    if (validatedData.description !== undefined)
+      updateData.description = validatedData.description
+    if (validatedData.status !== undefined)
+      updateData.status = validatedData.status
+    if (validatedData.priority !== undefined)
+      updateData.priority = validatedData.priority
+
+    // Update issue
+    await db.update(issues).set(updateData).where(eq(issues.id, id))
+    revalidateTag('issues')
+    return { success: true, message: 'Issue updated successfully' }
+  } catch (e) {
+    console.error(e)
+    return {
+      success: false,
+      message: 'An error occurred while updating the issue',
+      error: 'Failed to update issue',
+    }
+  }
+}
+
+export const deleteIssue = async (id: number) => {
+  try {
+    const user = await getCurrentUser()
+
+    if (!user) {
+      return {
+        success: false,
+        message: 'Unauthorized access',
+        error: 'Unauthorized',
+      }
+    }
+
+    const issue = await getIssue(id)
+    if (!issue) {
+      return notFound()
+    }
+
+    await db.delete(issues).where(eq(issues.id, id))
+    revalidateTag('issues')
+    return {
+      success: true,
+      message: 'Issue deleted successfully',
+    }
+  } catch (e) {
+    console.error(e)
+    return {
+      success: false,
+      message: 'An error occurred while deleting the issue',
+      error: 'Failed to delete issue',
+    }
+  }
 }
